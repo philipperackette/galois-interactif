@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Galois interactif</title>
+<style>
+:root{--bg:#0e1a44;--panel:#fbfaf4;--ink:#171717;--teal:#0f5b55;--garnet:#8a1d2c;--blue:#1d4f91;--gold:#c79b2b;--line:#d8d2c4}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f3f1ea;color:var(--ink)}
+header{background:var(--bg);color:white;padding:18px 24px;border-bottom:5px solid var(--gold)}
+header h1{margin:0;font-size:1.55rem;font-weight:650}header p{margin:.35rem 0 0;opacity:.9}
+main{padding:20px;max-width:1180px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 2px 10px #0001}
+.panel h2{margin:.1rem 0 1rem;font-size:1.1rem;color:var(--teal)}
+.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:12px}
+.control{display:flex;flex-direction:column;gap:4px}
+label{font-weight:600;font-size:.92rem}
+input,select,button{font:inherit;border:1px solid #bbb;border-radius:8px;padding:7px 9px;background:white}
+button{background:var(--teal);color:white;border-color:var(--teal);cursor:pointer}
+button.secondary{background:white;color:var(--teal)}
+button.active{background:var(--garnet);border-color:var(--garnet)}
+.note{font-size:.92rem;color:#444;line-height:1.45}
+.small{font-size:.88rem;color:#555}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.result{font-size:1.05rem;line-height:1.5}
+.info{border-left:4px solid var(--blue);padding:8px 10px;background:#f5f9ff;margin:8px 0}
+.success{border-left:4px solid var(--teal);padding:8px 10px;background:#f5fffb;margin:8px 0}
+.linkbar{margin-top:12px;font-size:.9rem;color:#555}
+svg{max-width:100%;height:auto;display:block}
+.cards{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.card{border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:white;cursor:pointer;transition:all .15s;font-size:.95rem}
+.card:hover{background:#f0f9f7;border-color:var(--teal)}
+.card.active{background:var(--teal);color:white;border-color:var(--teal)}
+.dual-lattice{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lattice-title{font-weight:600;color:var(--teal);margin-bottom:6px;font-size:.95rem}
+.node{cursor:pointer;transition:all .2s}
+.node:hover .node-bg{fill:#fff3cc;stroke:var(--gold);stroke-width:3}
+.node.hl .node-bg{fill:#fff3cc;stroke:var(--gold);stroke-width:3}
+.node.linked .node-bg{stroke:var(--garnet);stroke-width:2.5}
+</style>
+</head><body>
+<header><h1>Galois interactif</h1><p>Racines, automorphismes et correspondance entre sous-groupes et sous-corps.</p></header>
+<main>
+<section class="panel">
+  <div class="controls">
+    <div class="control"><label for="ex">Exemple</label>
+      <select id="ex">
+        <option value="sqrt2">ℚ(√2)/ℚ — degré 2, groupe ℤ/2ℤ</option>
+        <option value="sqrt23">ℚ(√2, √3)/ℚ — degré 4, groupe V₄</option>
+        <option value="cubic" selected>ℚ(∛2, j)/ℚ — degré 6, groupe S₃</option>
+        <option value="zeta5">ℚ(ζ₅)/ℚ — degré 4, groupe C₄</option>
+        <option value="zeta8">ℚ(ζ₈)/ℚ — degré 4, groupe V₄</option>
+      </select>
+    </div>
+  </div>
+  <div id="desc" class="info"></div>
+</section>
+<section class="grid">
+  <div class="panel">
+    <h2>Racines dans ℂ</h2>
+    <svg id="roots" viewBox="0 0 480 380"></svg>
+    <p class="note small">Cliquer sur un automorphisme à droite pour visualiser son action sur les racines.</p>
+  </div>
+  <div class="panel">
+    <h2>Automorphismes de Gal(L/ℚ)</h2>
+    <div id="autos" class="cards"></div>
+    <div id="currentAuto" class="success" style="display:none"></div>
+  </div>
+</section>
+<section class="panel">
+  <h2>Correspondance de Galois</h2>
+  <p class="note small">Survoler un sous-groupe ou un corps intermédiaire fait apparaître sa correspondance. Cliquer fige la sélection.</p>
+  <div class="dual-lattice">
+    <div>
+      <div class="lattice-title">Sous-groupes de Gal(L/ℚ)</div>
+      <svg id="latticeG" viewBox="0 0 480 340"></svg>
+    </div>
+    <div>
+      <div class="lattice-title">Corps intermédiaires ℚ ⊂ E ⊂ L</div>
+      <svg id="latticeF" viewBox="0 0 480 340"></svg>
+    </div>
+  </div>
+  <div id="explain" class="info" style="margin-top:8px"></div>
+</section>
+<div class="linkbar">Applet statique HTML/JS pur. Déployable tel quel sur GitHub Pages.</div>
+</main>
+<script>
+// Données : chaque exemple comprend
+// - desc : description
+// - rootLabels : étiquettes des éléments mis en scène
+// - rootPos : positions XY (pour le panneau "racines")
+// - autos : [nom, permutation sur indices des rootLabels]
+// - subgroups : [id, nom, indices d'autos qu'il contient, position XY dans treillis]
+// - fields : [id, nom, position XY dans treillis]
+// - pairing : { sg_id: field_id } -- correspondance bijective
+// - subgroupEdges : [[id1, id2], ...] inclusions immédiates
+// - fieldEdges : [[id1, id2], ...] inclusions immédiates
+const examples = {
+  sqrt2: {
+    desc: "Extension quadratique L = ℚ(√2). Le groupe Gal(L/ℚ) a deux éléments : l'identité et la conjugaison √2 ↦ −√2.",
+    rootLabels: ["√2", "−√2"],
+    rootPos: [[160,190],[320,190]],
+    autos: [["id",[0,1]],["σ",[1,0]]],
+    subgroups: [
+      {id:"e",  name:"{id}",       autos:[0], pos:[240,260]},
+      {id:"G",  name:"⟨σ⟩",        autos:[0,1], pos:[240,80]}
+    ],
+    fields: [
+      {id:"Q", name:"ℚ",            pos:[240,80]},
+      {id:"L", name:"ℚ(√2)",        pos:[240,260]}
+    ],
+    pairing: {e:"L", G:"Q"},
+    subgroupEdges: [["e","G"]],
+    fieldEdges: [["Q","L"]]
+  },
+  sqrt23: {
+    desc: "Extension biquadratique L = ℚ(√2, √3). Le groupe est le groupe de Klein V₄, composé de l'identité et de trois involutions (changer le signe de √2, de √3, ou des deux).",
+    rootLabels: ["√2","−√2","√3","−√3"],
+    rootPos: [[120,140],[360,140],[120,260],[360,260]],
+    autos: [
+      ["id",[0,1,2,3]],
+      ["σ",[1,0,2,3]],
+      ["τ",[0,1,3,2]],
+      ["στ",[1,0,3,2]]
+    ],
+    subgroups: [
+      {id:"e",  name:"{id}",        autos:[0],          pos:[240,290]},
+      {id:"s",  name:"⟨σ⟩",         autos:[0,1],        pos:[100,180]},
+      {id:"t",  name:"⟨τ⟩",         autos:[0,2],        pos:[240,180]},
+      {id:"st", name:"⟨στ⟩",        autos:[0,3],        pos:[380,180]},
+      {id:"G",  name:"V₄",          autos:[0,1,2,3],    pos:[240,60]}
+    ],
+    fields: [
+      {id:"Q",  name:"ℚ",            pos:[240,60]},
+      {id:"E2", name:"ℚ(√2)",        pos:[100,180]},
+      {id:"E3", name:"ℚ(√3)",        pos:[240,180]},
+      {id:"E6", name:"ℚ(√6)",        pos:[380,180]},
+      {id:"L",  name:"ℚ(√2,√3)",     pos:[240,290]}
+    ],
+    pairing: {e:"L", s:"E3", t:"E2", st:"E6", G:"Q"},
+    subgroupEdges: [["e","s"],["e","t"],["e","st"],["s","G"],["t","G"],["st","G"]],
+    fieldEdges: [["Q","E2"],["Q","E3"],["Q","E6"],["E2","L"],["E3","L"],["E6","L"]]
+  },
+  cubic: {
+    desc: "Corps de décomposition de X³ − 2 : L = ℚ(∛2, j) où j = e^(2iπ/3). Trois racines réelles/complexes ∛2, j∛2, j²∛2. Le groupe est S₃ (permutations des trois racines).",
+    rootLabels: ["∛2","j∛2","j²∛2"],
+    rootPos: [[240,90],[140,260],[340,260]],
+    autos: [
+      ["id",  [0,1,2]],
+      ["ρ",   [1,2,0]],
+      ["ρ²",  [2,0,1]],
+      ["τ",   [0,2,1]],
+      ["ρτ",  [1,0,2]],
+      ["ρ²τ", [2,1,0]]
+    ],
+    subgroups: [
+      {id:"e",  name:"{id}",            autos:[0],            pos:[240,300]},
+      {id:"t1", name:"⟨τ⟩",             autos:[0,3],          pos:[80,200]},
+      {id:"t2", name:"⟨ρτ⟩",            autos:[0,4],          pos:[240,200]},
+      {id:"t3", name:"⟨ρ²τ⟩",           autos:[0,5],          pos:[400,200]},
+      {id:"A",  name:"⟨ρ⟩ ≃ A₃",        autos:[0,1,2],        pos:[160,100]},
+      {id:"G",  name:"S₃",              autos:[0,1,2,3,4,5],  pos:[240,30]}
+    ],
+    fields: [
+      {id:"Q",  name:"ℚ",              pos:[240,30]},
+      {id:"Qj", name:"ℚ(j)",           pos:[160,100]},
+      {id:"K1", name:"ℚ(∛2)",          pos:[80,200]},
+      {id:"K2", name:"ℚ(j∛2)",         pos:[240,200]},
+      {id:"K3", name:"ℚ(j²∛2)",        pos:[400,200]},
+      {id:"L",  name:"ℚ(∛2,j)",        pos:[240,300]}
+    ],
+    pairing: {e:"L", t1:"K1", t2:"K2", t3:"K3", A:"Qj", G:"Q"},
+    subgroupEdges: [["e","t1"],["e","t2"],["e","t3"],["e","A"],["A","G"],["t1","G"],["t2","G"],["t3","G"]],
+    fieldEdges: [["Q","Qj"],["Q","K1"],["Q","K2"],["Q","K3"],["Qj","L"],["K1","L"],["K2","L"],["K3","L"]]
+  },
+  zeta5: {
+    desc: "Corps cyclotomique L = ℚ(ζ₅) où ζ₅ = e^(2iπ/5). Le groupe Gal(L/ℚ) ≃ (ℤ/5ℤ)× est cyclique d'ordre 4, engendré par σ₂ : ζ ↦ ζ².",
+    rootLabels: ["ζ","ζ²","ζ³","ζ⁴"],
+    rootPos: [
+      [240+120*Math.cos(2*Math.PI/5), 200-120*Math.sin(2*Math.PI/5)],
+      [240+120*Math.cos(4*Math.PI/5), 200-120*Math.sin(4*Math.PI/5)],
+      [240+120*Math.cos(6*Math.PI/5), 200-120*Math.sin(6*Math.PI/5)],
+      [240+120*Math.cos(8*Math.PI/5), 200-120*Math.sin(8*Math.PI/5)]
+    ],
+    autos: [
+      ["id",  [0,1,2,3]],
+      ["σ₂",  [1,3,0,2]],
+      ["σ₄",  [3,2,1,0]],
+      ["σ₃",  [2,0,3,1]]
+    ],
+    subgroups: [
+      {id:"e",  name:"{id}",       autos:[0],        pos:[240,280]},
+      {id:"H",  name:"⟨σ₄⟩",       autos:[0,2],      pos:[240,170]},
+      {id:"G",  name:"⟨σ₂⟩",       autos:[0,1,2,3],  pos:[240,60]}
+    ],
+    fields: [
+      {id:"Q",  name:"ℚ",           pos:[240,60]},
+      {id:"F",  name:"ℚ(√5)",       pos:[240,170]},
+      {id:"L",  name:"ℚ(ζ₅)",       pos:[240,280]}
+    ],
+    pairing: {e:"L", H:"F", G:"Q"},
+    subgroupEdges: [["e","H"],["H","G"]],
+    fieldEdges: [["Q","F"],["F","L"]]
+  },
+  zeta8: {
+    desc: "Corps cyclotomique L = ℚ(ζ₈) = ℚ(i, √2). Le groupe Gal(L/ℚ) ≃ (ℤ/8ℤ)× ≃ V₄ (groupe de Klein, non cyclique).",
+    rootLabels: ["ζ","ζ³","ζ⁵","ζ⁷"],
+    rootPos: [
+      [240+120*Math.cos(  Math.PI/4), 200-120*Math.sin(  Math.PI/4)],
+      [240+120*Math.cos(3*Math.PI/4), 200-120*Math.sin(3*Math.PI/4)],
+      [240+120*Math.cos(5*Math.PI/4), 200-120*Math.sin(5*Math.PI/4)],
+      [240+120*Math.cos(7*Math.PI/4), 200-120*Math.sin(7*Math.PI/4)]
+    ],
+    autos: [
+      ["id",  [0,1,2,3]],
+      ["σ₃",  [1,2,3,0]],
+      ["σ₅",  [2,3,0,1]],
+      ["σ₇",  [3,0,1,2]]
+    ],
+    subgroups: [
+      {id:"e",  name:"{id}",        autos:[0],          pos:[240,290]},
+      {id:"s3", name:"⟨σ₃⟩",        autos:[0,2],        pos:[100,180]},
+      {id:"s5", name:"⟨σ₅⟩",        autos:[0,1],        pos:[240,180]},
+      {id:"s7", name:"⟨σ₇⟩",        autos:[0,3],        pos:[380,180]},
+      {id:"G",  name:"V₄",          autos:[0,1,2,3],    pos:[240,60]}
+    ],
+    fields: [
+      {id:"Q",  name:"ℚ",           pos:[240,60]},
+      {id:"i",  name:"ℚ(i)",        pos:[100,180]},
+      {id:"S",  name:"ℚ(√2)",       pos:[240,180]},
+      {id:"M",  name:"ℚ(i√2)",      pos:[380,180]},
+      {id:"L",  name:"ℚ(ζ₈)",       pos:[240,290]}
+    ],
+    pairing: {e:"L", s3:"M", s5:"S", s7:"i", G:"Q"},
+    subgroupEdges: [["e","s3"],["e","s5"],["e","s7"],["s3","G"],["s5","G"],["s7","G"]],
+    fieldEdges: [["Q","i"],["Q","S"],["Q","M"],["i","L"],["S","L"],["M","L"]]
+  }
+};
+
+const $=id=>document.getElementById(id);
+let currentEx="cubic";
+let currentAuto=null;
+let hoverSub=null;
+let lockedSub=null;
+let hoverField=null;
+let lockedField=null;
+
+function drawRoots(e,perm){
+  let pts=e.rootPos;
+  let labels=e.rootLabels;
+  let out='<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a1d2c"/></marker></defs>';
+  // axes
+  out+=`<line x1="20" y1="190" x2="460" y2="190" stroke="#ddd"/>`;
+  out+=`<line x1="240" y1="20" x2="240" y2="360" stroke="#ddd"/>`;
+  // points
+  pts.forEach((p,i)=>{
+    let isFixed=perm&&perm[i]===i;
+    out+=`<circle cx="${p[0]}" cy="${p[1]}" r="26" fill="#f8f4e8" stroke="${isFixed?'#0f5b55':'#888'}" stroke-width="${isFixed?3:1.5}"/>`;
+    out+=`<text x="${p[0]}" y="${p[1]+6}" text-anchor="middle" font-size="17" font-weight="600">${labels[i]}</text>`;
+  });
+  // arcs de permutation
+  if(perm){
+    pts.forEach((p,i)=>{
+      if(perm[i]===i)return;
+      let t=pts[perm[i]];
+      let dx=t[0]-p[0],dy=t[1]-p[1];
+      let len=Math.hypot(dx,dy);
+      if(len<1)return;
+      let ux=dx/len,uy=dy/len;
+      // raccourcir les extrémités pour éviter de chevaucher les cercles
+      let x1=p[0]+26*ux,y1=p[1]+26*uy;
+      let x2=t[0]-30*ux,y2=t[1]-30*uy;
+      // courbure perpendiculaire
+      let mx=(x1+x2)/2,my=(y1+y2)/2;
+      let perpx=-uy,perpy=ux;
+      let cx=mx+perpx*22,cy=my+perpy*22;
+      out+=`<path d="M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}" stroke="#8a1d2c" stroke-width="2.2" fill="none" marker-end="url(#arr)"/>`;
+    });
+  }
+  $('roots').innerHTML=out;
+}
+
+function drawLattice(svgId, nodes, edges, hl, linked){
+  let out='';
+  // arêtes
+  let posMap={};
+  nodes.forEach(n=>{posMap[n.id]=n});
+  edges.forEach(([a,b])=>{
+    let na=posMap[a],nb=posMap[b];
+    out+=`<line x1="${na.pos[0]}" y1="${na.pos[1]}" x2="${nb.pos[0]}" y2="${nb.pos[1]}" stroke="#888" stroke-width="1.5"/>`;
+  });
+  // nœuds
+  nodes.forEach(n=>{
+    let isHL=(hl===n.id);
+    let isLinked=(linked===n.id);
+    let cls='node';
+    if(isHL)cls+=' hl';
+    if(isLinked)cls+=' linked';
+    let txt=n.name;
+    // largeur approx selon longueur
+    let w=Math.max(60, txt.length*9+12);
+    out+=`<g class="${cls}" data-id="${n.id}">`;
+    out+=`<rect class="node-bg" x="${n.pos[0]-w/2}" y="${n.pos[1]-15}" width="${w}" height="30" rx="6" fill="white" stroke="#0f5b55" stroke-width="1.5"/>`;
+    out+=`<text x="${n.pos[0]}" y="${n.pos[1]+5}" text-anchor="middle" font-size="14" font-weight="600">${txt}</text>`;
+    out+=`</g>`;
+  });
+  $(svgId).innerHTML=out;
+}
+
+function explainPair(e, sgId){
+  if(!sgId)return '';
+  let sg=e.subgroups.find(s=>s.id===sgId);
+  let fid=e.pairing[sgId];
+  let f=e.fields.find(x=>x.id===fid);
+  let autoNames=sg.autos.map(i=>e.autos[i][0]);
+  return `<b>Sous-groupe</b> ${sg.name} = {${autoNames.join(', ')}} ↔ <b>corps fixe</b> ${f.name}. `+
+         `L'ordre du sous-groupe est ${sg.autos.length}, le degré [L:${f.name}] = ${sg.autos.length}.`;
+}
+
+function render(){
+  let e=examples[currentEx];
+  $('desc').textContent=e.desc;
+  // racines
+  drawRoots(e, currentAuto!==null?e.autos[currentAuto][1]:null);
+  // autos
+  $('autos').innerHTML=e.autos.map((a,i)=>{
+    let active=(i===currentAuto)?' active':'';
+    return `<div class="card${active}" data-auto="${i}">${a[0]}</div>`;
+  }).join('');
+  document.querySelectorAll('.card[data-auto]').forEach(el=>{
+    el.onclick=()=>{
+      let i=+el.dataset.auto;
+      currentAuto=(currentAuto===i)?null:i;
+      render();
+    };
+  });
+  if(currentAuto!==null){
+    let [name,perm]=e.autos[currentAuto];
+    let fixed=perm.map((p,i)=>p===i?i:null).filter(x=>x!==null);
+    let fixedStr=fixed.length?fixed.map(i=>e.rootLabels[i]).join(', '):'aucune';
+    let cycles=[];
+    let seen=new Set();
+    for(let i=0;i<perm.length;i++){
+      if(seen.has(i)||perm[i]===i)continue;
+      let cyc=[i],j=perm[i];
+      while(j!==i){cyc.push(j);seen.add(j);j=perm[j]}
+      seen.add(i);
+      cycles.push(cyc);
+    }
+    let cycStr=cycles.length?cycles.map(c=>'('+c.map(i=>e.rootLabels[i]).join(' ')+')').join('  '):'identité';
+    $('currentAuto').style.display='';
+    $('currentAuto').innerHTML=
+      `<b>${name}</b> : ${cycStr}. Racine(s) fixée(s) : ${fixedStr}.`;
+  }else{
+    $('currentAuto').style.display='none';
+  }
+  // treillis
+  let curSub=lockedSub||hoverSub;
+  let curField=lockedField||hoverField;
+  // synchroniser : si on est sur un sous-groupe, le corps lié est highlighted comme "linked"
+  let linkedField=curSub?e.pairing[curSub]:null;
+  let linkedSub=null;
+  if(curField){
+    for(let s in e.pairing)if(e.pairing[s]===curField)linkedSub=s;
+  }
+  drawLattice('latticeG', e.subgroups, e.subgroupEdges, curSub, linkedSub);
+  drawLattice('latticeF', e.fields, e.fieldEdges, curField, linkedField);
+  // bind hover sur les noeuds
+  document.querySelectorAll('#latticeG .node').forEach(el=>{
+    el.onmouseenter=()=>{hoverSub=el.dataset.id;render()};
+    el.onmouseleave=()=>{hoverSub=null;render()};
+    el.onclick=()=>{lockedSub=(lockedSub===el.dataset.id)?null:el.dataset.id;lockedField=null;render()};
+  });
+  document.querySelectorAll('#latticeF .node').forEach(el=>{
+    el.onmouseenter=()=>{hoverField=el.dataset.id;render()};
+    el.onmouseleave=()=>{hoverField=null;render()};
+    el.onclick=()=>{lockedField=(lockedField===el.dataset.id)?null:el.dataset.id;lockedSub=null;render()};
+  });
+  // explication
+  let explainSub=lockedSub||hoverSub||linkedSub;
+  if(!explainSub&&curField){
+    for(let s in e.pairing)if(e.pairing[s]===curField){explainSub=s;break}
+  }
+  $('explain').innerHTML=explainSub?explainPair(e,explainSub):
+    '<span class="small">Survol ou clic sur un nœud pour mettre en évidence la correspondance.</span>';
+}
+
+$('ex').onchange=()=>{
+  currentEx=$('ex').value;
+  currentAuto=null;
+  hoverSub=lockedSub=hoverField=lockedField=null;
+  render();
+};
+render();
+</script>
+</body></html>
