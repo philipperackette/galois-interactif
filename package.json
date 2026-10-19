@@ -1,0 +1,20 @@
+{
+  "name": "galois-interactif",
+  "private": true,
+  "description": "Outils de vérification (lint et tests) ; le site lui-même n'a aucune dépendance.",
+  "type": "module",
+  "scripts": {
+    "lint": "npm run lint:js && npm run lint:html",
+    "lint:js": "eslint .",
+    "lint:html": "htmlhint \"*.html\"",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.56.1",
+    "eslint": "10.13.0",
+    "eslint-plugin-html": "8.2.1",
+    "globals": "17.13.0",
+    "htmlhint": "1.9.2"
+  }
+}
